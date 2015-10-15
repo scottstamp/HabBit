@@ -1,8 +1,9 @@
 # HabBit
-This application was designed to modify the .abc blocks in Habbo's game client to allow it to run anywhere, with custom handshake parameters.
-Powered by [FlashInspect](https://github.com/ArachisH/FlashInspect)(AS3 Shockwave Flash(SWF) file (dis)assembler.)
+This application was designed to modify the .abc blocks in Habbo's game client to allow it to run anywhere, with custom handshake parameters.  
+Powered by [FlashInspect](https://github.com/ArachisH/FlashInspect)
 
-[Latest Release(s)](https://github.com/ArachisH/HabBit/releases)
+[Latest Release(s)](https://github.com/ArachisH/HabBit/releases)  
+*This application will take a minimum of 5 seconds without compression to finish, or your money back.*
 ## Requirements
 * .NET Framework 2.0
 * (Source Only)IDE with C# 6 support.
