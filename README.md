@@ -5,9 +5,7 @@ Powered by [FlashInspect](https://github.com/ArachisH/FlashInspect)(AS3 Shockwav
 [Latest Release(s)](https://github.com/ArachisH/HabBit/releases)
 ## Requirements
 * .NET Framework 2.0
-
-## Requirements(Source)
-* IDE with C# 6 support.
+* (Source Only)IDE with C# 6 support.
 
 ## Capabilties
 * Public RSA key pair replacement.
