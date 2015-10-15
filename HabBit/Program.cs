@@ -109,7 +109,7 @@ namespace HabBit
         {
             var getLoc = (ASOPCode)(local + 0xD0);
 
-            method.Body.Code.InsertInstruction(0, ASOPCode.GetLocal_1);
+            method.Body.Code.InsertInstruction(0, getLoc);
             method.Body.Code.InsertInstruction(1, ASOPCode.ReturnValue);
 
             WriteLine("Inserted <{0}>, and <ReturnValue> instructions at: {1}",
