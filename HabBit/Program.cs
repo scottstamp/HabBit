@@ -24,6 +24,7 @@ namespace HabBit
         static string Modulus { get; set; } = "86851dd364d5c5cece3c883171cc6ddc5760779b992482bd1e20dd296888df91b33b936a7b93f06d29e8870f703a216257dec7c81de0058fea4cc5116f75e6efc4e9113513e45357dc3fd43d4efab5963ef178b78bd61e81a14c603b24c8bcce0a12230b320045498edc29282ff0603bc7b7dae8fc1b05b52b2f301a9dc783b7";
 
         static bool DisableRC4 { get; set; } = false;
+        static bool DumpHeaders { get; set; } = false;
         static bool CompressClient { get; set; } = true;
 
         static void Main(string[] args)
@@ -52,6 +53,9 @@ namespace HabBit
             if (DisableRC4) SanitizeRC4Methods(ABCTags[2]);
             SanitizeRSAKeys(ABCTags[2]);
 
+            if (DumpHeaders)
+                ExtractMessages(ABCTags[2]);
+
             WriteLine("Reconstructing...");
             HabboClient.Reconstruct();
 
@@ -67,27 +71,27 @@ namespace HabBit
 
         static void InsertEarlyReturnFalse(ASMethod method)
         {
-            method.Body.Code.InsertInstruction(0, ASOPCode.PushTrue);
-            method.Body.Code.InsertInstruction(1, ASOPCode.ReturnValue);
+            method.Body.Code.InsertInstruction(0, OPCode.PushTrue);
+            method.Body.Code.InsertInstruction(1, OPCode.ReturnValue);
 
             WriteLine("Inserted <PushTrue>, and <ReturnValue> instructions at: {0}",
                 GenerateReadableSignature(method));
         }
         static string GenerateReadableSignature(ASMethod method)
         {
-            string signature = method.RealName + "(";
+            string signature = method.ObjName + "(";
             for (int i = 0; i < method.Parameters.Count; i++)
             {
                 ASParameter param = method.Parameters[i];
                 string paramName = "arg" + (i + 1);
 
                 if (param.Type != null)
-                    paramName += (":" + param.Type.RealName);
+                    paramName += (":" + param.Type.ObjName);
 
                 if (param.IsOptional)
                 {
                     paramName += "=";
-                    bool isString = (param.Type?.RealName.ToLower() == "string");
+                    bool isString = (param.Type?.ObjName.ToLower() == "string");
 
                     if (isString) paramName += "\"";
                     object optionalValue = (param.Value ?? "null");
@@ -100,22 +104,88 @@ namespace HabBit
                 signature += paramName + ", ";
             }
 
-            signature = signature.Remove(
-                signature.Length - 2, 2);
+            if (method.Parameters.Count > 0)
+            {
+                signature = signature.Remove(
+                    signature.Length - 2, 2);
+            }
 
-            return signature + "):" + method.ReturnType.RealName;
+            signature += ")";
+            if (method.ReturnType != null)
+                signature += (":" + method.ReturnType.ObjName);
+
+            return signature;
         }
         static void InsertEarlyReturnLocal(ASMethod method, int local)
         {
-            var getLoc = (ASOPCode)(local + 0xD0);
+            var getLoc = (OPCode)(local + 0xD0);
 
             method.Body.Code.InsertInstruction(0, getLoc);
-            method.Body.Code.InsertInstruction(1, ASOPCode.ReturnValue);
+            method.Body.Code.InsertInstruction(1, OPCode.ReturnValue);
 
             WriteLine("Inserted <{0}>, and <ReturnValue> instructions at: {1}",
                 getLoc, GenerateReadableSignature(method));
         }
 
+        static void ExtractMessages(DoABCTag abcTag)
+        {
+            ABCFile abc = abcTag.ABC;
+            ASClass habboMessages = abc.FindClassByName("HabboMessages");
+            var x = abc.FindClassByName("default");
+
+            ASTrait incomingMap = habboMessages.Traits[0];
+            ASTrait outgoingMap = habboMessages.Traits[1];
+
+            int outCount = 0, inCount = 0;
+            using (var mapReader = new FlashReader(
+                habboMessages.Constructor.Body.Code.ToArray()))
+            {
+                string headerDump = string.Empty;
+                while (mapReader.Position != mapReader.Length)
+                {
+                    var op = (OPCode)mapReader.ReadByte();
+                    if (op != OPCode.GetLex) continue;
+
+                    int multinameIndex = mapReader.Read7BitEncodedInt();
+
+                    bool isOutgoing = (multinameIndex == outgoingMap.NameIndex);
+                    bool isIncoming = (multinameIndex == incomingMap.NameIndex);
+                    if (!isOutgoing && !isIncoming) continue;
+
+                    if (isOutgoing) outCount++;
+                    else inCount++;
+
+                    op = (OPCode)mapReader.ReadByte();
+                    if (op != OPCode.PushShort && op != OPCode.PushByte) continue;
+
+                    int header = mapReader.Read7BitEncodedInt();
+
+                    op = (OPCode)mapReader.ReadByte();
+                    if (op != OPCode.GetLex) continue;
+
+                    int messageTypeIndex = mapReader.Read7BitEncodedInt();
+                    ASMultiname messageType = abc.Constants.Multinames[messageTypeIndex];
+
+                    string title = (isOutgoing ? "Outgoing" : "Incoming");
+                    headerDump += $"{title}[{header}]: {messageType.ObjName}";
+                    if (isOutgoing)
+                    {
+                        ASInstance outgoingType =
+                            abc.FindInstanceByName(messageType.ObjName);
+
+                        headerDump +=
+                            GenerateReadableSignature(outgoingType.Constructor);
+                    }
+                    headerDump += "\r\n";
+
+                    // Not sure what other stuff to do with the header/message type.
+                    // Maybe determine the structures? Idk.
+                }
+
+                WriteLine($"Outgoing Types: {outCount} | Incoming Types: {inCount}");
+                File.WriteAllText($"{FileDirectory}\\HEADERS_{FileName}.txt", headerDump);
+            }
+        }
         static void SanitizeRSAKeys(DoABCTag abcTag)
         {
             ABCFile abc = abcTag.ABC;
@@ -133,18 +203,18 @@ namespace HabBit
                 exponentIndex = (abc.Constants.Strings.Count - 1);
             }
 
-            ASInstance commClass = abc.FindInstance("HabboCommunicationDemo");
+            ASInstance commClass = abc.FindInstanceByName("HabboCommunicationDemo");
             foreach (ASTrait trait in commClass.Traits)
             {
-                if (trait.Kind != ASTraitType.Method) continue;
+                if (trait.TraitType != TraitType.Method) continue;
                 var commMethod = ((MethodGetterSetterTrait)trait.Data).Method;
 
-                if (commMethod.ReturnType.RealName != "void") continue;
+                if (commMethod.ReturnType.ObjName != "void") continue;
                 if (commMethod.Parameters.Count != 1) continue;
                 // The parameter type's <RealName> property will change in every release, so don't check it.
 
                 ASCode methodCode = commMethod.Body.Code;
-                int getlexStart = methodCode.IndexOf((byte)ASOPCode.GetLex);
+                int getlexStart = methodCode.IndexOf((byte)OPCode.GetLex);
 
                 if (getlexStart == -1) continue;
                 using (var codeReader = new FlashReader(methodCode.ToArray()))
@@ -153,10 +223,10 @@ namespace HabBit
                     bool searchingKeys = true;
                     while (codeReader.Position != codeReader.Length)
                     {
-                        var op = (ASOPCode)codeReader.ReadByte();
+                        var op = (OPCode)codeReader.ReadByte();
                         codeWriter.Write((byte)op);
 
-                        if (op != ASOPCode.GetLex || !searchingKeys) continue;
+                        if (op != OPCode.GetLex || !searchingKeys) continue;
                         getlexStart = (codeReader.Position - 1);
 
                         int getlexTypeIndex = codeReader.Read7BitEncodedInt();
@@ -164,12 +234,12 @@ namespace HabBit
 
                         int getlexSize = (codeReader.Position - getlexStart);
                         ASMultiname getlexType = abc.Constants.Multinames[getlexTypeIndex];
-                        if (getlexType.RealName != "KeyObfuscator") continue;
+                        if (getlexType.ObjName != "KeyObfuscator") continue;
 
-                        op = (ASOPCode)codeReader.ReadByte();
+                        op = (OPCode)codeReader.ReadByte();
                         codeWriter.Write((byte)op);
 
-                        if (op != ASOPCode.CallProperty) continue;
+                        if (op != OPCode.CallProperty) continue;
 
                         // Don't write these values, this is where our <pushstring> instruction will go.
                         int propIndex = codeReader.Read7BitEncodedInt();
@@ -179,11 +249,11 @@ namespace HabBit
                         ASMultiname propType = abc.Constants.Multinames[propIndex];
                         int indexToPush = (modulusIndex > 0 ? modulusIndex : exponentIndex);
 
-                        codeWriter.Write((byte)ASOPCode.PushString);
+                        codeWriter.Write((byte)OPCode.PushString);
                         codeWriter.Write7BitEncodedInt(indexToPush);
 
                         WriteLine("Replaced <GetLex>, and <CallProperty>(KeyObfuscator.{0}()) with <PushString> at: {1}",
-                            propType.RealName, GenerateReadableSignature(commMethod));
+                            propType.ObjName, GenerateReadableSignature(commMethod));
 
                         if (modulusIndex > 0) modulusIndex = -1;
                         else searchingKeys = false;
@@ -198,15 +268,15 @@ namespace HabBit
         static void SanitizeRC4Methods(DoABCTag abcTag)
         {
             ABCFile abc = abcTag.ABC;
-            ASInstance rc4Instance = abc.FindInstance("RC4");
+            ASInstance rc4Instance = abc.FindInstanceByName("RC4");
             foreach (ASTrait trait in rc4Instance.Traits)
             {
-                if (trait.Kind != ASTraitType.Method) continue;
+                if (trait.TraitType != TraitType.Method) continue;
                 var rc4Method = ((MethodGetterSetterTrait)trait.Data).Method;
 
-                if (rc4Method.ReturnType.RealName != "ByteArray") continue;
+                if (rc4Method.ReturnType.ObjName != "ByteArray") continue;
                 if (rc4Method.Parameters.Count != 1) continue;
-                if (rc4Method.Parameters[0].Type.RealName != "ByteArray") continue;
+                if (rc4Method.Parameters[0].Type.ObjName != "ByteArray") continue;
 
                 InsertEarlyReturnLocal(rc4Method, 1);
             }
@@ -214,21 +284,22 @@ namespace HabBit
         static void SanitizeClientUnloader(DoABCTag abcTag)
         {
             ABCFile abc = abcTag.ABC;
-            ASMethod clientUnloaderMethod = abc.FindMethods(1, "Boolean")[0];
+            ASMethod possibleDomainChecker = abc.Classes[0]
+                .FindMethod("*", "Boolean");
 
-            if (clientUnloaderMethod.Parameters[0].Type.RealName != "MovieClip") return;
+            if (possibleDomainChecker.Parameters.Count != 1) return;
+            if (possibleDomainChecker.Parameters[0].Type.ObjName != "MovieClip") return;
 
-            InsertEarlyReturnFalse(clientUnloaderMethod);
+            InsertEarlyReturnFalse(possibleDomainChecker);
         }
         static void SanitizeIsValidHabboDomain(DoABCTag abcTag)
         {
             ABCFile abc = abcTag.ABC;
-            ASClass habboClass = abc.FindClass("Habbo");
-            ASMethod isValidHabboDomainMethod = abc.FindMethods(habboClass, "isValidHabboDomain")[0];
+            ASClass habboClass = abc.FindClassByName("Habbo");
+            ASMethod isValidHabboDomainMethod = habboClass.FindMethod("isValidHabboDomain", "Boolean");
 
-            if (isValidHabboDomainMethod.ReturnType.RealName != "Boolean") return;
             if (isValidHabboDomainMethod.Parameters.Count != 1) return;
-            if (isValidHabboDomainMethod.Parameters[0].Type.RealName != "String") return;
+            if (isValidHabboDomainMethod.Parameters[0].Type.ObjName != "String") return;
 
             InsertEarlyReturnFalse(isValidHabboDomainMethod);
         }
@@ -258,10 +329,10 @@ namespace HabBit
         static IList<DoABCTag> GetABCTags(ShockwaveFlash flash)
         {
             WriteLine("Disassembling...");
-            flash.ReadFlashTags();
+            flash.ReadTags();
 
             var abcTags = new List<DoABCTag>(5);
-            foreach (FlashTag tag in flash.FlashTags)
+            foreach (FlashTag tag in flash.Tags)
             {
                 if (tag.Header.TagType != FlashTagType.DoABC) continue;
                 abcTags.Add((DoABCTag)tag);
@@ -333,12 +404,12 @@ namespace HabBit
                 string commands = string.Empty;
                 commands += RequestFile();
 
-                if (AskQuestion("[Default: No] Would you like to disable RC4 encryption?"))
+                if (AskQuestion("Would you like to disable RC4 encryption?"))
                     commands += "\ndisablerc4";
 
                 string modStart = Modulus.Substring(0, 25);
                 string modEnd = Modulus.Substring(Modulus.Length - 25);
-                if (!AskQuestion($"E: {Exponenet}\r\nN: {modStart}...{modEnd}\r\n[Default: Yes] Would you like to use these RSA keys as replacements?"))
+                if (!AskQuestion($"E: {Exponenet}\r\nN: {modStart}...{modEnd}\r\nWould you like to use these RSA keys as replacements?"))
                 {
                     Console.Write("Exponenet(E): ");
                     commands += ("\ne:" + Console.ReadLine());
@@ -349,8 +420,11 @@ namespace HabBit
                     Console.WriteLine("---------------");
                 }
 
-                if (!AskQuestion("[Default: Yes] Would you like to compress the file once reconstruction is finished?"))
+                if (!AskQuestion("Would you like to compress the file once reconstruction is finished?"))
                     commands += "\nskipcompress";
+
+                if (AskQuestion("Example: Outgoing[4000] = _-AB\r\nWould you like to dump a file containing a list of headers paired with their associated type/handler?"))
+                    commands += "\ndumpheaders";
 
                 args = commands.Split('\n');
                 Console.Clear();
@@ -388,6 +462,10 @@ namespace HabBit
 
                     case "skipcompress":
                     CompressClient = false;
+                    break;
+
+                    case "dumpheaders":
+                    DumpHeaders = true;
                     break;
                 }
             }
