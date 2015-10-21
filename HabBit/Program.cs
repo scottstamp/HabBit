@@ -131,7 +131,6 @@ namespace HabBit
         {
             ABCFile abc = abcTag.ABC;
             ASClass habboMessages = abc.FindClassByName("HabboMessages");
-            var x = abc.FindClassByName("default");
 
             ASTrait incomingMap = habboMessages.Traits[0];
             ASTrait outgoingMap = habboMessages.Traits[1];
