@@ -10,6 +10,7 @@ Powered by [FlashInspect](https://github.com/ArachisH/FlashInspect)
 
 ## Capabilties
 * Public RSA key pair replacement.
+* Extract basic header information(type/name/ctor signature).
 * Modifes the "isValidHabboDomain" method to always return true.
 * Alters method that would unload the client if the client was running on an unknown host.
 * Disable RC4 encr/decry methods by having them return the same `ByteArray` input when invoked.
@@ -19,6 +20,7 @@ Powered by [FlashInspect](https://github.com/ArachisH/FlashInspect)
 * `e:X` - Will be used as the exponent value when replacing the RSA keys.
 * `disablerc4` - Modifes the RC4 methods so that the client won't encrypt/decrypt any data.
 * `skipcompress` - Will not compress the reconstructed  client, disabling this will increase the file size, but will also also be quicker to complete.
+* `dumpheaders` - Will create a text file containing each packet id's type/name next to each other, if the packet is an outgoing type, it will contain its ctor signature.
 
 Default RSA Keys
 ```
@@ -27,4 +29,4 @@ N:86851dd364d5c5cece3c883171cc6ddc5760779b992482bd1e20dd296888df91b33b936a7b93f0
 ```
 
 ## Console Interface
-![HabBit](http://i.imgur.com/eaDVja6.png)
+![HabBit](http://i.imgur.com/Oz9UPKP.png)
